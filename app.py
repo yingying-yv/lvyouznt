@@ -105,18 +105,19 @@ def call_deepseek(prompt, temperature=0.7, max_tokens=2000):
     except Exception as e:
         return f"⚠️ 请求异常：{str(e)}"
 
-# ==================== 行程规划核心 ====================
-def generate_travel_plan(destination, days, budget=None):
-    """调用AI生成完整行程"""
+# ==================== 行程规划核心（支持出发地）====================
+def generate_travel_plan(origin, destination, days, budget=None):
+    """调用AI生成完整行程，包含从出发地到目的地的往返交通建议"""
     budget_text = f"，总预算约{budget}元" if budget else ""
-    prompt = f"""你是一位资深旅行规划师。请为{destination}生成一份{days}天的详细旅行计划{budget_text}。
+    prompt = f"""你是一位资深旅行规划师。用户将从{origin}出发，前往{destination}游玩{days}天{budget_text}。
 
-要求：
-1. 按天输出，每天包含时间轴（从9:00到20:00）
-2. 每个景点注明建议游览时长和交通方式（点对点）
-3. 推荐午餐和晚餐的特色餐厅
-4. 考虑景点开放时间和地理位置，避免行程过赶
-5. 最后给出总预算估算（门票+交通+餐饮）
+请生成一份完整的旅行计划，要求：
+1. **往返交通**：推荐从{origin}到{destination}的合理交通方案（飞机/高铁/火车），注明预估时间、费用和班次建议。
+2. **当地行程**：按天输出{destination}的详细行程，每天包含时间轴（从9:00到20:00）。
+3. **景点细节**：每个景点注明建议游览时长和当地交通方式（点对点）。
+4. **餐饮推荐**：推荐午餐和晚餐的特色餐厅。
+5. **时间合理性**：考虑景点开放时间和地理位置，避免行程过赶。
+6. **预算统计**：最后给出总预算估算（往返交通 + 当地门票 + 餐饮 + 住宿）。
 
 输出格式使用Markdown，清晰易读。"""
     return call_deepseek(prompt)
@@ -236,21 +237,30 @@ def main():
     # 主要内容区域
     if menu == "📅 行程规划":
         st.markdown('<div class="sub-header">🎯 一键生成智能行程</div>', unsafe_allow_html=True)
-        col1, col2 = st.columns(2)
+        
+        # 三列布局：出发地、目的地、天数（紧凑显示）
+        col1, col2, col3 = st.columns(3)
         with col1:
-            destination = st.text_input("🏙️ 目的地", placeholder="例如：北京、成都、东京...", key="dest")
-            days = st.number_input("📆 游玩天数", min_value=1, max_value=14, value=3, step=1)
+            origin = st.text_input("🚀 出发地", placeholder="例如：上海、广州...", key="origin")
         with col2:
+            destination = st.text_input("🏙️ 目的地", placeholder="例如：北京、成都、东京...", key="dest")
+        with col3:
+            days = st.number_input("📆 游玩天数", min_value=1, max_value=14, value=3, step=1)
+        
+        # 预算和高级选项放在单独一行
+        col_b1, col_b2 = st.columns(2)
+        with col_b1:
             budget = st.number_input("💰 总预算（可选，单位：元）", min_value=0, value=3000, step=500)
+        with col_b2:
             with st.expander("⚙️ 高级选项"):
                 ai_temp = st.slider("AI创造性 (越高越灵活)", 0.0, 1.0, 0.7)
         
         if st.button("✨ 一键生成行程", use_container_width=True):
-            if not destination:
-                st.error("请填写目的地")
+            if not origin or not destination:
+                st.error("请填写出发地和目的地")
             else:
                 with st.spinner("AI正在为您规划最完美的路线，请稍候..."):
-                    plan = generate_travel_plan(destination, days, budget if budget > 0 else None)
+                    plan = generate_travel_plan(origin, destination, days, budget if budget > 0 else None)
                     st.session_state["generated_plan"] = plan
         if "generated_plan" in st.session_state:
             st.markdown("---")
@@ -265,7 +275,9 @@ def main():
             with col_a:
                 if st.button("🔄 重新优化", use_container_width=True):
                     with st.spinner("AI根据您的修改意见重新优化中..."):
-                        new_plan = call_deepseek(f"请根据以下用户自定义的旅行计划草稿，优化并完善成一个合理的每日行程，保持格式清晰:\n{edited_plan}")
+                        # 重新优化时保留出发地和目的地信息
+                        new_prompt = f"请根据以下用户自定义的旅行计划草稿（出发地：{origin}，目的地：{destination}，天数：{days}天），优化并完善成一个合理的每日行程，包含往返交通建议，保持格式清晰:\n{edited_plan}"
+                        new_plan = call_deepseek(new_prompt)
                         st.session_state["generated_plan"] = new_plan
                         st.rerun()
             with col_b:
