@@ -4,7 +4,7 @@ import json
 import os
 from datetime import datetime
 import random
-
+import time
 # ==================== 页面配置 ====================
 st.set_page_config(
     page_title="旅游计划智能体 · PC专业版",
@@ -145,35 +145,137 @@ def search_attractions(query, rating_filter="不限", distance_filter="不限"):
         all_spots = [s for s in all_spots if float(s['distance'].rstrip('km')) <= 5]
     return all_spots
 
-def search_foods(city, cuisine="不限"):
-    foods_db = [
-        {"name": "全聚德烤鸭", "rating": 4.6, "price": "150元/人", "cuisine": "北京菜", "address": "前门大街", "specialty": "挂炉烤鸭"},
-        {"name": "海底捞火锅", "rating": 4.8, "price": "120元/人", "cuisine": "火锅", "address": "各大商圈", "specialty": "服务周到"},
-        {"name": "楼外楼", "rating": 4.5, "price": "100元/人", "cuisine": "杭帮菜", "address": "西湖边", "specialty": "西湖醋鱼"},
-        {"name": "陈麻婆豆腐", "rating": 4.7, "price": "60元/人", "cuisine": "川菜", "address": "青羊区", "specialty": "麻婆豆腐"}
-    ]
-    if city:
-        # 简单匹配城市相关
-        if city in ["北京", "杭州", "成都", "上海"]:
-            foods_db = [f for f in foods_db if (city == "北京" and f['cuisine']=="北京菜") or 
-                        (city == "杭州" and f['cuisine']=="杭帮菜") or
-                        (city == "成都" and f['cuisine']=="川菜") or
-                        (city == "上海" and f['name']=="海底捞火锅")]
-    if cuisine != "不限":
-        foods_db = [f for f in foods_db if f['cuisine'] == cuisine]
-    return foods_db
+AMAP_API_KEY = "你的高德地图Web_API_Key_XXX"
+
+def search_foods(city, cuisine="不限", radius=5000):
+    """
+    使用高德地图API搜索指定城市的真实餐厅列表
+    """
+    if not city:
+        return []
+    
+    search_query = cuisine if cuisine != "不限" else "美食"
+    # 1. 地理编码：将城市名转换为经纬度坐标
+    geocode_url = f"https://restapi.amap.com/v3/geocode/geo"
+    geo_params = {
+        "address": city,
+        "output": "JSON",
+        "key": AMAP_API_KEY
+    }
+    try:
+        geo_response = requests.get(geocode_url, params=geo_params, timeout=10)
+        geo_data = geo_response.json()
+        if geo_data.get("status") == "1" and geo_data.get("geocodes"):
+            location_str = geo_data["geocodes"][0]["location"]
+            longitude, latitude = location_str.split(",")
+            
+            # 2. 周边搜索：基于经纬度搜索餐厅POI
+            around_url = f"https://restapi.amap.com/v5/place/around"
+            params = {
+                "key": AMAP_API_KEY,
+                "keywords": search_query,
+                "location": f"{longitude},{latitude}",
+                "radius": radius,
+                "types": "050000",
+                "offset": 15,
+                "page": 1,
+                "output": "JSON"
+            }
+            resp = requests.get(around_url, params=params, timeout=10)
+            data = resp.json()
+            if data.get("status") == "1" and data.get("pois"):
+                foods = []
+                for poi in data.get("pois", [])[:15]:
+                    foods.append({
+                        "name": poi.get("name"),
+                        "rating": 5.0,
+                        "price": f"{int(poi.get('biz_ext', {}).get('cost', 50))}元/人",
+                        "cuisine": cuisine if cuisine != "不限" else search_query,
+                        "address": poi.get("address"),
+                        "specialty": poi.get("type").split(';')[-1] if poi.get("type") else "热门餐厅"
+                    })
+                return foods
+            else:
+                st.warning(f"未找到相关美食，请尝试其他关键词或城市。API响应：{data.get('info')}")
+                return []
+        else:
+            st.warning(f"未能找到城市 '{city}' 的坐标信息，请检查城市名称。")
+            return []
+    except Exception as e:
+        st.error(f"美食搜索请求异常: {str(e)}")
+        return []
 
 def get_weather(city):
-    """模拟天气查询"""
+    """
+    使用 Open-Meteo 和 Geoapify (Nominatim) 获取真实天气数据
+    """
     if not city:
         return None
-    weathers = [
-        {"temp": 22, "condition": "晴", "humidity": 45, "wind": "2级东南风", "dress": "短袖+薄外套，注意防晒"},
-        {"temp": 28, "condition": "多云", "humidity": 60, "wind": "1级南风", "dress": "夏装，带遮阳帽"},
-        {"temp": 15, "condition": "小雨", "humidity": 80, "wind": "3级北风", "dress": "长袖+薄毛衣，带伞"},
-        {"temp": 5, "condition": "晴", "humidity": 30, "wind": "4级西北风", "dress": "羽绒服，保暖帽"}
-    ]
-    return random.choice(weathers)
+    # 1. 地理编码：城市名转经纬度
+    geocode_url = f"https://geocode.maps.co/search?q={city}&format=json"
+    try:
+        geo_resp = requests.get(geocode_url, timeout=10)
+        geo_data = geo_resp.json()
+        if not geo_data:
+            st.warning(f"无法获取城市 '{city}' 的地理坐标，请检查城市名称。")
+            return None
+        lat = geo_data[0]["lat"]
+        lon = geo_data[0]["lon"]
+        # 2. 获取实时天气（使用Open-Meteo）
+        weather_url = "https://api.open-meteo.com/v1/forecast"
+        params = {
+            "latitude": lat,
+            "longitude": lon,
+            "current_weather": True,
+            "hourly": "temperature_2m,relativehumidity_2m,windspeed_10m,weathercode",
+            "timezone": "Asia/Shanghai"
+        }
+        weather_resp = requests.get(weather_url, params=params, timeout=10)
+        weather_data = weather_resp.json()
+        if weather_data and "current_weather" in weather_data:
+            current = weather_data["current_weather"]
+            weathercode = current.get("weathercode")
+            # 简单的天气代码映射
+            condition_map = {
+                0: "晴",
+                1: "多云",
+                2: "多云",
+                3: "多云",
+                45: "雾",
+                51: "毛毛雨",
+                61: "小雨",
+                71: "小雪"
+            }
+            condition = condition_map.get(weathercode, "晴")
+            temp = current.get("temperature")
+            wind_speed = current.get("windspeed")
+            # 从hourly数据中获取湿度（可选）
+            humidity = weather_data.get("hourly", {}).get("relativehumidity_2m", [None])[0]
+            # 生成穿衣建议
+            dress_advice = "请根据天气情况适当穿着。"
+            if temp is not None:
+                if temp > 28:
+                    dress_advice = "天气炎热，建议穿短袖、短裤，注意防晒。"
+                elif temp > 20:
+                    dress_advice = "天气温暖，适合穿短袖、薄外套。"
+                elif temp > 10:
+                    dress_advice = "天气凉爽，建议加一件外套。"
+                else:
+                    dress_advice = "天气寒冷，请注意保暖，穿羽绒服。"
+            return {
+                "temp": temp,
+                "condition": condition,
+                "humidity": humidity,
+                "wind": f"{wind_speed} km/h",
+                "dress_advice": dress_advice,
+                "alert": None
+            }
+        else:
+            st.warning(f"未能获取 '{city}' 的天气数据，请稍后重试。")
+            return None
+    except Exception as e:
+        st.error(f"天气查询请求异常: {str(e)}")
+        return None
 
 def calculate_budget(days, persons, level):
     level_rates = {
