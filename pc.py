@@ -219,7 +219,7 @@ def get_realtime(info_type):
 def main():
     # 顶部标题
     st.markdown('<div class="main-header">✈️ 旅游计划智能体 · PC专业版</div>', unsafe_allow_html=True)
-    st.caption("基于DeepSeek AI的智能行程规划 | 一键生成 | 多维查询 | 灵活调整")
+    st.caption("AI智能行程规划")
 
     # 侧边栏功能菜单
     with st.sidebar:
