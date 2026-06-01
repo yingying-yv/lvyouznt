@@ -222,15 +222,21 @@ def get_weather(city):
     """
     使用高德天气查询 API 获取实时天气
     """
-    key = get_amap_key()
-    if not key or not city:
+    # 从 Streamlit secrets 读取高德 Key
+    try:
+        key = st.secrets["AMAP_API_KEY"]
+    except:
+        st.error("请在 Streamlit Secrets 中配置 AMAP_API_KEY")
         return None
-    
+
+    if not city:
+        return None
+
     weather_url = "https://restapi.amap.com/v3/weather/weatherInfo"
     params = {
         "key": key,
         "city": city,
-        "extensions": "base"   # base 返回实时天气，all 返回预报
+        "extensions": "base"   # base 返回实时天气
     }
     try:
         resp = requests.get(weather_url, params=params, timeout=10)
@@ -250,12 +256,13 @@ def get_weather(city):
                 dress = "天气凉爽，建议加一件外套。"
             else:
                 dress = "天气寒冷，请注意保暖，穿羽绒服。"
+            # 返回字典中包含 'dress' 键，与前端显示保持一致
             return {
                 "temp": temp,
                 "condition": condition,
                 "humidity": humidity,
                 "wind": f"{wind}级",
-                "dress_advice": dress,
+                "dress": dress,          # 注意这里是 'dress'
                 "alert": None
             }
         else:
