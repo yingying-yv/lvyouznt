@@ -264,7 +264,7 @@ def get_weather(city):
     except Exception as e:
         st.error(f"天气查询异常：{str(e)}")
         return None
-
+        
 def calculate_budget(days, persons, level):
     level_rates = {
         "经济型": {"住宿": 200, "餐饮": 80, "交通": 50, "门票": 60},
