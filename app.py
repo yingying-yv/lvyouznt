@@ -290,27 +290,141 @@ def calculate_budget(days, persons, level):
     total = sum(details.values())
     return {"total": total, "details": details}
 
+
+def get_driving_route(origin, destination, city=None):
+    """
+    调用高德驾车路径规划 API，返回路线信息
+    """
+    try:
+        key = st.secrets["AMAP_API_KEY"]
+    except:
+        st.error("高德 API Key 未配置")
+        return []
+
+    # 地理编码：出发地和目的地转坐标
+    def geocode(address):
+        url = "https://restapi.amap.com/v3/geocode/geo"
+        params = {"key": key, "address": address, "output": "JSON"}
+        resp = requests.get(url, params=params, timeout=10)
+        data = resp.json()
+        if data.get("status") == "1" and data.get("geocodes"):
+            return data["geocodes"][0]["location"]
+        return None
+
+    origin_loc = geocode(origin)
+    dest_loc = geocode(destination)
+    if not origin_loc or not dest_loc:
+        st.warning("无法解析出发地或目的地坐标")
+        return []
+
+    # 驾车路径规划
+    url = "https://restapi.amap.com/v3/direction/driving"
+    params = {
+        "key": key,
+        "origin": origin_loc,
+        "destination": dest_loc,
+        "extensions": "all",
+        "output": "JSON"
+    }
+    try:
+        resp = requests.get(url, params=params, timeout=15)
+        data = resp.json()
+        if data.get("status") == "1" and data.get("route", {}).get("paths"):
+            path = data["route"]["paths"][0]
+            duration = int(path["duration"]) // 60  # 分钟
+            distance = float(path["distance"]) / 1000  # 公里
+            toll = float(path.get("tolls", 0))
+            segments = path.get("steps", [])
+            # 提取路况（拥堵、缓行等）
+            traffic_info = "路线中可能经过拥堵路段，具体请查看导航"
+            return [{
+                "type": "驾车",
+                "duration": f"{duration}分钟",
+                "price": f"{toll:.0f}元（过路费）",
+                "detail": f"全程{distance:.1f}公里，约{duration}分钟，{traffic_info}"
+            }]
+        else:
+            st.warning("未找到驾车路线，请检查城市间是否有道路连接")
+            return []
+    except Exception as e:
+        st.error(f"路线规划失败：{e}")
+        return []
+        
+
+def get_traffic_condition(city):
+    """
+    基于高德交通态势 API，获取城市中心区域的实时路况
+    注意：需要将 Streamlit Cloud 的出口 IP 添加到高德控制台 IP 白名单
+    """
+    try:
+        key = st.secrets["AMAP_API_KEY"]
+    except:
+        st.error("高德 API Key 未配置")
+        return "路况服务不可用"
+
+    # 先获取城市中心坐标（以“城市+市政府”为例）
+    geocode_url = "https://restapi.amap.com/v3/geocode/geo"
+    geo_params = {"key": key, "address": f"{city}市政府", "output": "JSON"}
+    try:
+        geo_resp = requests.get(geocode_url, params=geo_params, timeout=10)
+        geo_data = geo_resp.json()
+        if not geo_data.get("geocodes"):
+            return f"无法定位城市 {city}"
+        location = geo_data["geocodes"][0]["location"]
+        lon, lat = location.split(",")
+        # 构造矩形区域（方圆3公里）
+        delta = 0.03  # 约3km
+        rectangle = f"{float(lon)-delta},{float(lat)-delta};{float(lon)+delta},{float(lat)+delta}"
+        # 调用交通态势 API
+        traffic_url = "https://restapi.amap.com/v3/traffic/status/rectangle"
+        params = {
+            "key": key,
+            "rectangle": rectangle,
+            "output": "JSON"
+        }
+        resp = requests.get(traffic_url, params=params, timeout=10)
+        data = resp.json()
+        if data.get("status") == "1" and data.get("trafficinfo"):
+            # 解析拥堵指数
+            description = data["trafficinfo"]["description"]
+            return description
+        else:
+            return f"无法获取实时路况：{data.get('info', '未知错误')}"
+    except Exception as e:
+        return f"路况查询异常：{e}"
+
+
 def get_transport(origin, dest, mode="intercity"):
     if mode == "intercity":
-        return [
-            {"type": "高铁", "duration": "4.5小时", "price": 550, "detail": "G2次 08:00-12:30"},
-            {"type": "飞机", "duration": "2小时", "price": 680, "detail": "CA1234 10:00-12:00"},
-            {"type": "大巴", "duration": "8小时", "price": 180, "detail": "长途巴士 09:00-17:00"}
-        ]
+        # 城际交通：优先显示驾车方案（也可再调用公交 API）
+        routes = get_driving_route(origin, dest)
+        if not routes:
+            # 降级模拟数据（提醒用户）
+            return [{
+                "type": "暂无可规划路线",
+                "duration": "未知",
+                "price": "未知",
+                "detail": "请检查出发地/目的地是否正确，或尝试其他交通方式"
+            }]
+        return routes
     else:
-        return [
-            {"type": "地铁", "duration": "40分钟", "price": 5, "detail": "换乘1次"},
-            {"type": "公交", "duration": "55分钟", "price": 2, "detail": "直达"},
-            {"type": "打车", "duration": "25分钟", "price": 30, "detail": "约12公里"}
-        ]
+        # 市内交通：同样使用驾车路径规划（也可选择公交/步行）
+        return get_driving_route(origin, dest)
+   
 
 def get_realtime(info_type):
-    mock = {
-        "景区人流": "故宫当前人流指数：中等（舒适度较好）",
-        "交通路况": "二环路东段轻微拥堵，预计延误10分钟",
-        "官方公告": "颐和园今日延长开放至20:00，有夜游活动"
-    }
-    return mock.get(info_type, "暂无数据")
+    if info_type == "交通路况":
+        # 假设用户已选择城市（可以从前端传入，这里简单固定为“成都”示例）
+        city = st.session_state.get("traffic_city", "成都")
+        return get_traffic_condition(city)
+    elif info_type == "景区人流":
+        # 景区人流需要景区提供接口，暂返回模拟数据
+        return "当前景区人流数据暂未接入，建议出发前查询景区官网。"
+    elif info_type == "官方公告":
+        # 可从旅游官网 RSS 或官方 API 获取，此处返回模拟提示
+        return "暂无最新官方公告，建议关注目的地文旅局公众号。"
+    else:
+        return "暂无数据"
 
 # ==================== PC端主界面 ====================
 def main():
@@ -460,22 +574,33 @@ def main():
             st.success(f"**总计预算：¥{budget_result['total']:,.0f}**")
             st.caption("注：住宿按2人一间估算，交通含当地交通，门票为主要景点均价")
 
-    elif menu == "🚗 交通路线":
-        st.markdown('<div class="sub-header">🚄 交通方案规划</div>', unsafe_allow_html=True)
-        trans_type = st.radio("交通类型", ["城际交通", "市内交通"], horizontal=True)
-        if trans_type == "城际交通":
-            col_t1, col_t2 = st.columns(2)
-            with col_t1:
-                origin = st.text_input("出发城市", "上海")
-            with col_t2:
-                dest_city = st.text_input("到达城市", "北京")
-            if st.button("查询城际方案"):
-                options = get_transport(origin, dest_city, "intercity")
-                for opt in options:
-                    with st.container():
-                        st.markdown(f"**{opt['type']}**  |  耗时 {opt['duration']}  |  费用 ¥{opt['price']}")
-                        st.caption(opt['detail'])
-                        st.divider()
+elif menu == "🚗 交通路线":
+    st.markdown('<div class="sub-header">🚄 实时交通方案</div>', unsafe_allow_html=True)
+    trans_type = st.radio("交通类型", ["城际交通", "市内交通"], horizontal=True)
+    if trans_type == "城际交通":
+        col1, col2 = st.columns(2)
+        with col1:
+            origin = st.text_input("出发城市", "上海")
+        with col2:
+            dest = st.text_input("到达城市", "北京")
+        if st.button("查询实时路线"):
+            with st.spinner("正在规划路线..."):
+                routes = get_transport(origin, dest, "intercity")
+                for r in routes:
+                    st.markdown(f"**{r['type']}** | 耗时 {r['duration']} | 费用 {r['price']}")
+                    st.caption(r['detail'])
+                    st.divider()
+    else:
+        col1, col2 = st.columns(2)
+        with col1:
+            start = st.text_input("起点（精确到地点）", "天安门")
+        with col2:
+            end = st.text_input("终点", "颐和园")
+        if st.button("查询市内路线"):
+            with st.spinner("正在规划..."):
+                routes = get_transport(start, end, "city")
+                for r in routes:
+                    st.markdown(f"**{r['type']}** | 耗时 {r['duration']} | {r['detail']}")
         else:
             col_s, col_e = st.columns(2)
             with col_s:
@@ -487,13 +612,13 @@ def main():
                 for opt in options:
                     st.write(f"🚌 {opt['type']}：约 {opt['duration']}，费用 ¥{opt['price']}，{opt['detail']}")
 
-    elif menu == "📢 实时信息":
-        st.markdown('<div class="sub-header">📡 出行实时动态</div>', unsafe_allow_html=True)
-        info_type = st.selectbox("信息类别", ["景区人流", "交通路况", "官方公告"])
-        if st.button("获取最新信息"):
-            info = get_realtime(info_type)
-            st.info(f"📢 {info}")
-            st.caption("注：演示数据，实际可对接景区/交通API")
+elif menu == "📢 实时信息":
+    st.markdown('<div class="sub-header">📡 出行实时动态</div>', unsafe_allow_html=True)
+    info_city = st.text_input("城市（用于路况查询）", "成都", key="traffic_city")
+    info_type = st.selectbox("信息类别", ["交通路况", "景区人流", "官方公告"])
+    if st.button("获取最新信息"):
+        info = get_realtime(info_type)
+        st.info(f"📢 {info}")
 
 if __name__ == "__main__":
     main()
