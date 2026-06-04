@@ -334,22 +334,35 @@ def main():
                 st.rerun()
 
     # ---------- 景点查询（模拟数据） ----------
-    elif menu == "🏞️ 景点查询":
-        st.markdown('<div class="sub-header">🏛️ 景点搜索（模拟数据）</div>', unsafe_allow_html=True)
-        query = st.text_input("🔍 输入景点名称或城市")
-        if st.button("搜索景点"):
-            all_spots = [
-                {"name": "故宫博物院", "rating": 4.8, "intro": "明清皇宫", "open_time": "8:30-17:00", "ticket": "60元"},
-                {"name": "颐和园", "rating": 4.7, "intro": "皇家园林", "open_time": "6:30-20:00", "ticket": "30元"},
-                {"name": "西湖", "rating": 4.9, "intro": "免费开放", "open_time": "全天", "ticket": "免费"}
-            ]
-            if query:
-                all_spots = [s for s in all_spots if query.lower() in s['name'].lower()]
-            for spot in all_spots:
-                with st.expander(f"{spot['name']} ⭐{spot['rating']}"):
-                    st.write(spot['intro'])
-                    st.write(f"开放: {spot['open_time']}  门票: {spot['ticket']}")
-
+elif menu == "🏞️ 景点查询":
+    st.markdown('<div class="sub-header">🏛️ 景点搜索（高德实时）</div>', unsafe_allow_html=True)
+    col1, col2 = st.columns(2)
+    with col1:
+        city = st.text_input("📍 城市名称", placeholder="北京、成都...")
+    with col2:
+        keyword = st.text_input("🔍 景点关键词（可选）", placeholder="故宫、熊猫...")
+    
+    col3, col4 = st.columns(2)
+    with col3:
+        rating_filter = st.selectbox("⭐ 评分筛选", ["不限", "4.5+", "4.0+"])
+    with col4:
+        distance_filter = st.selectbox("📏 距离筛选（中心城区）", ["不限", "≤1km", "≤5km"])
+    
+    if st.button("搜索景点", use_container_width=True):
+        if not city:
+            st.error("请填写城市名称")
+        else:
+            with st.spinner("正在搜索景点..."):
+                results = search_attractions(city, keyword, rating_filter, distance_filter)
+                if not results:
+                    st.info("未找到相关景点，请尝试其他城市或关键词")
+                else:
+                    for spot in results:
+                        with st.expander(f"🏯 {spot['name']}  ⭐ {spot['rating']}  |  📍 {spot['distance']}"):
+                            st.markdown(f"**简介**: {spot['intro']}")
+                            st.markdown(f"**开放时间**: {spot['open_time']}  |  **门票**: {spot['ticket']}")
+                            if st.button("➕ 加入行程草稿", key=f"add_{spot['name']}"):
+                                st.info(f"已将 {spot['name']} 加入待选（可在行程规划中手动添加）")
     # ---------- 美食推荐 ----------
     elif menu == "🍜 美食推荐":
         st.markdown('<div class="sub-header">🍽️ 地道美食（高德实时）</div>', unsafe_allow_html=True)
