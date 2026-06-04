@@ -60,6 +60,86 @@ def generate_travel_plan(origin, destination, days, budget=None):
 输出Markdown格式。"""
     return call_deepseek(prompt)
 
+
+# ----------景点查询（实时） -----------
+def search_attractions(city, keyword="", rating_filter="不限", distance_filter="不限"):
+    """
+    使用高德地图 API 搜索真实景点
+    city: 城市名称（如“成都”）
+    keyword: 可选，景点名称关键词（如“熊猫”），为空则搜索所有景点
+    """
+    key = get_amap_key()
+    if not city:
+        return []
+
+    # 1. 地理编码：城市名 -> 经纬度
+    geo_url = "https://restapi.amap.com/v3/geocode/geo"
+    geo_params = {"key": key, "address": city, "output": "JSON"}
+    try:
+        geo_resp = requests.get(geo_url, params=geo_params, timeout=10)
+        geo_data = geo_resp.json()
+        if geo_data.get("status") != "1" or not geo_data.get("geocodes"):
+            st.warning(f"无法获取城市 '{city}' 坐标，请检查城市名称")
+            return []
+        location = geo_data["geocodes"][0]["location"]  # "经度,纬度"
+
+        # 2. 搜索景点：types=110000 表示风景名胜（包含公园、广场等）
+        # 也可用 010000 表示所有旅游景点，这里使用 110000 更准确
+        types = "110000"  # 高德POI分类：风景名胜
+        search_keyword = keyword if keyword else "景点"
+        around_url = "https://restapi.amap.com/v3/place/around"
+        around_params = {
+            "key": key,
+            "location": location,
+            "keywords": search_keyword,
+            "types": types,
+            "radius": 20000,    # 20公里范围
+            "offset": 20,       # 返回20条
+            "page": 1,
+            "output": "JSON"
+        }
+        resp = requests.get(around_url, params=around_params, timeout=10)
+        data = resp.json()
+        
+        if data.get("status") == "1" and data.get("pois"):
+            attractions = []
+            for poi in data["pois"]:
+                # 提取评分（高德不一定有，默认为None）
+                rating = poi.get("biz_ext", {}).get("rating")
+                rating_val = float(rating) if rating else 4.0
+                # 距离（单位：米）
+                distance = poi.get("distance", "0")
+                # 开放时间（可能为空）
+                open_time = poi.get("biz_ext", {}).get("open_time", "暂无")
+                # 门票价格（通常没有，从description中提取或留空）
+                ticket = poi.get("biz_ext", {}).get("ticket", "暂无")
+                attractions.append({
+                    "name": poi["name"],
+                    "rating": rating_val,
+                    "distance": f"{int(distance)/1000:.1f}km" if distance else "未知",
+                    "intro": poi.get("address", "")[:50] + "..." if len(poi.get("address", "")) > 50 else poi.get("address", ""),
+                    "open_time": open_time if open_time else "请以景区公告为准",
+                    "ticket": f"{ticket}元" if ticket != "暂无" else "暂无",
+                    "location": city
+                })
+            # 简单过滤（如果用户选择了评分）
+            if rating_filter == "4.5+":
+                attractions = [a for a in attractions if a["rating"] >= 4.5]
+            elif rating_filter == "4.0+":
+                attractions = [a for a in attractions if a["rating"] >= 4.0]
+            # 距离过滤（单位km）
+            if distance_filter == "≤1km":
+                attractions = [a for a in attractions if float(a["distance"].rstrip('km')) <= 1]
+            elif distance_filter == "≤5km":
+                attractions = [a for a in attractions if float(a["distance"].rstrip('km')) <= 5]
+            return attractions
+        else:
+            st.warning(f"未找到景点：{data.get('info')}")
+            return []
+    except Exception as e:
+        st.error(f"景点搜索异常：{e}")
+        return []
+
 # ---------- 高德美食搜索（实时） ----------
 def search_foods(city, cuisine="不限"):
     key = get_amap_key()
