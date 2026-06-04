@@ -60,74 +60,48 @@ def generate_travel_plan(origin, destination, days, budget=None):
 输出Markdown格式。"""
     return call_deepseek(prompt)
 
-
-# ----------景点查询（实时） -----------
+# ---------- 高德景点搜索 ----------
 def search_attractions(city, keyword="", rating_filter="不限", distance_filter="不限"):
-    """
-    使用高德地图 API 搜索真实景点
-    city: 城市名称（如“成都”）
-    keyword: 可选，景点名称关键词（如“熊猫”），为空则搜索所有景点
-    """
     key = get_amap_key()
     if not city:
         return []
-
-    # 1. 地理编码：城市名 -> 经纬度
     geo_url = "https://restapi.amap.com/v3/geocode/geo"
     geo_params = {"key": key, "address": city, "output": "JSON"}
     try:
         geo_resp = requests.get(geo_url, params=geo_params, timeout=10)
         geo_data = geo_resp.json()
         if geo_data.get("status") != "1" or not geo_data.get("geocodes"):
-            st.warning(f"无法获取城市 '{city}' 坐标，请检查城市名称")
+            st.warning(f"无法获取城市 '{city}' 坐标")
             return []
-        location = geo_data["geocodes"][0]["location"]  # "经度,纬度"
-
-        # 2. 搜索景点：types=110000 表示风景名胜（包含公园、广场等）
-        # 也可用 010000 表示所有旅游景点，这里使用 110000 更准确
-        types = "110000"  # 高德POI分类：风景名胜
+        location = geo_data["geocodes"][0]["location"]
         search_keyword = keyword if keyword else "景点"
         around_url = "https://restapi.amap.com/v3/place/around"
         around_params = {
-            "key": key,
-            "location": location,
-            "keywords": search_keyword,
-            "types": types,
-            "radius": 20000,    # 20公里范围
-            "offset": 20,       # 返回20条
-            "page": 1,
-            "output": "JSON"
+            "key": key, "location": location, "keywords": search_keyword,
+            "types": "110000", "radius": 20000, "offset": 20, "page": 1, "output": "JSON"
         }
         resp = requests.get(around_url, params=around_params, timeout=10)
         data = resp.json()
-        
         if data.get("status") == "1" and data.get("pois"):
             attractions = []
             for poi in data["pois"]:
-                # 提取评分（高德不一定有，默认为None）
                 rating = poi.get("biz_ext", {}).get("rating")
                 rating_val = float(rating) if rating else 4.0
-                # 距离（单位：米）
                 distance = poi.get("distance", "0")
-                # 开放时间（可能为空）
                 open_time = poi.get("biz_ext", {}).get("open_time", "暂无")
-                # 门票价格（通常没有，从description中提取或留空）
                 ticket = poi.get("biz_ext", {}).get("ticket", "暂无")
                 attractions.append({
                     "name": poi["name"],
                     "rating": rating_val,
                     "distance": f"{int(distance)/1000:.1f}km" if distance else "未知",
-                    "intro": poi.get("address", "")[:50] + "..." if len(poi.get("address", "")) > 50 else poi.get("address", ""),
+                    "intro": poi.get("address", "")[:80],
                     "open_time": open_time if open_time else "请以景区公告为准",
-                    "ticket": f"{ticket}元" if ticket != "暂无" else "暂无",
-                    "location": city
+                    "ticket": f"{ticket}元" if ticket != "暂无" else "暂无"
                 })
-            # 简单过滤（如果用户选择了评分）
             if rating_filter == "4.5+":
                 attractions = [a for a in attractions if a["rating"] >= 4.5]
             elif rating_filter == "4.0+":
                 attractions = [a for a in attractions if a["rating"] >= 4.0]
-            # 距离过滤（单位km）
             if distance_filter == "≤1km":
                 attractions = [a for a in attractions if float(a["distance"].rstrip('km')) <= 1]
             elif distance_filter == "≤5km":
@@ -140,12 +114,11 @@ def search_attractions(city, keyword="", rating_filter="不限", distance_filter
         st.error(f"景点搜索异常：{e}")
         return []
 
-# ---------- 高德美食搜索（实时） ----------
+# ---------- 高德美食搜索 ----------
 def search_foods(city, cuisine="不限"):
     key = get_amap_key()
     if not city:
         return []
-    # 地理编码
     geo_url = "https://restapi.amap.com/v3/geocode/geo"
     geo_params = {"key": key, "address": city, "output": "JSON"}
     try:
@@ -158,8 +131,8 @@ def search_foods(city, cuisine="不限"):
         keywords = cuisine if cuisine != "不限" else "美食"
         around_url = "https://restapi.amap.com/v3/place/around"
         around_params = {
-            "key": key, "location": location, "keywords": keywords, "types": "050000",
-            "radius": 5000, "offset": 20, "page": 1, "output": "JSON"
+            "key": key, "location": location, "keywords": keywords,
+            "types": "050000", "radius": 5000, "offset": 20, "page": 1, "output": "JSON"
         }
         resp = requests.get(around_url, params=around_params, timeout=10)
         data = resp.json()
@@ -183,7 +156,7 @@ def search_foods(city, cuisine="不限"):
         st.error(f"美食搜索异常：{e}")
         return []
 
-# ---------- 高德天气查询（实时） ----------
+# ---------- 高德天气查询 ----------
 def get_weather(city):
     key = get_amap_key()
     if not city:
@@ -207,10 +180,8 @@ def get_weather(city):
                 dress = "天气凉爽，建议加一件外套。"
             else:
                 dress = "天气寒冷，请注意保暖，穿羽绒服。"
-            return {
-                "temp": temp, "condition": condition, "humidity": humidity,
-                "wind": f"{wind}级", "dress": dress, "alert": None
-            }
+            return {"temp": temp, "condition": condition, "humidity": humidity,
+                    "wind": f"{wind}级", "dress": dress, "alert": None}
         else:
             st.warning(f"天气查询失败：{data.get('info')}")
             return None
@@ -218,7 +189,7 @@ def get_weather(city):
         st.error(f"天气查询异常：{e}")
         return None
 
-# ---------- 实时驾车路线（高德） ----------
+# ---------- 实时驾车路线 ----------
 def get_driving_route(origin, destination):
     key = get_amap_key()
     def geocode(address):
@@ -248,8 +219,7 @@ def get_driving_route(origin, destination):
             distance = float(path["distance"]) / 1000
             toll = float(path.get("tolls", 0))
             return [{
-                "type": "驾车",
-                "duration": f"{duration}分钟",
+                "type": "驾车", "duration": f"{duration}分钟",
                 "price": f"{toll:.0f}元（过路费）" if toll > 0 else "无过路费",
                 "detail": f"全程{distance:.1f}公里，约{duration}分钟"
             }]
@@ -261,12 +231,9 @@ def get_driving_route(origin, destination):
         return []
 
 def get_transport(origin, dest, mode="intercity"):
-    if mode == "intercity":
-        return get_driving_route(origin, dest)
-    else:
-        return get_driving_route(origin, dest)
+    return get_driving_route(origin, dest)  # 城际和市内统一用驾车规划
 
-# ---------- 实时路况（高德交通态势，可能需要IP白名单） ----------
+# ---------- 实时路况 ----------
 def get_traffic_condition(city):
     key = get_amap_key()
     geo_url = "https://restapi.amap.com/v3/geocode/geo"
@@ -301,7 +268,23 @@ def get_realtime(info_type, city="成都"):
     else:
         return "暂无数据"
 
-# ---------- PC端主界面 ----------
+# ---------- 预算计算 ----------
+def calculate_budget(days, persons, level):
+    level_rates = {
+        "经济型": {"住宿": 200, "餐饮": 80, "交通": 50, "门票": 60},
+        "舒适型": {"住宿": 400, "餐饮": 150, "交通": 100, "门票": 100},
+        "豪华型": {"住宿": 900, "餐饮": 350, "交通": 200, "门票": 200}
+    }
+    rates = level_rates[level]
+    rooms = (persons + 1) // 2
+    return {
+        "住宿": rates["住宿"] * days * rooms,
+        "餐饮": rates["餐饮"] * days * persons,
+        "交通": rates["交通"] * days * persons,
+        "门票": rates["门票"] * days * persons
+    }
+
+# ---------- 主界面 ----------
 def main():
     st.markdown('<div class="main-header">✈️ 旅游计划智能体 · PC专业版</div>', unsafe_allow_html=True)
     st.caption("基于DeepSeek AI + 高德地图实时数据")
@@ -309,7 +292,7 @@ def main():
     with st.sidebar:
         menu = st.radio("导航", ["📅 行程规划", "🏞️ 景点查询", "🍜 美食推荐", "☀️ 天气查询", "💰 预算计算", "🚗 交通路线", "📢 实时信息"])
 
-    # ---------- 行程规划 ----------
+    # 行程规划
     if menu == "📅 行程规划":
         st.markdown('<div class="sub-header">🎯 一键生成智能行程</div>', unsafe_allow_html=True)
         col1, col2, col3 = st.columns(3)
@@ -333,37 +316,36 @@ def main():
                 del st.session_state["plan"]
                 st.rerun()
 
-    # ---------- 景点查询（模拟数据） ----------
-elif menu == "🏞️ 景点查询":
-    st.markdown('<div class="sub-header">🏛️ 景点搜索（高德实时）</div>', unsafe_allow_html=True)
-    col1, col2 = st.columns(2)
-    with col1:
-        city = st.text_input("📍 城市名称", placeholder="北京、成都...")
-    with col2:
-        keyword = st.text_input("🔍 景点关键词（可选）", placeholder="故宫、熊猫...")
-    
-    col3, col4 = st.columns(2)
-    with col3:
-        rating_filter = st.selectbox("⭐ 评分筛选", ["不限", "4.5+", "4.0+"])
-    with col4:
-        distance_filter = st.selectbox("📏 距离筛选（中心城区）", ["不限", "≤1km", "≤5km"])
-    
-    if st.button("搜索景点", use_container_width=True):
-        if not city:
-            st.error("请填写城市名称")
-        else:
-            with st.spinner("正在搜索景点..."):
-                results = search_attractions(city, keyword, rating_filter, distance_filter)
-                if not results:
-                    st.info("未找到相关景点，请尝试其他城市或关键词")
-                else:
-                    for spot in results:
-                        with st.expander(f"🏯 {spot['name']}  ⭐ {spot['rating']}  |  📍 {spot['distance']}"):
-                            st.markdown(f"**简介**: {spot['intro']}")
-                            st.markdown(f"**开放时间**: {spot['open_time']}  |  **门票**: {spot['ticket']}")
-                            if st.button("➕ 加入行程草稿", key=f"add_{spot['name']}"):
-                                st.info(f"已将 {spot['name']} 加入待选（可在行程规划中手动添加）")
-    # ---------- 美食推荐 ----------
+    # 景点查询
+    elif menu == "🏞️ 景点查询":
+        st.markdown('<div class="sub-header">🏛️ 景点搜索（高德实时）</div>', unsafe_allow_html=True)
+        col1, col2 = st.columns(2)
+        with col1:
+            city = st.text_input("📍 城市名称", placeholder="北京、成都...")
+        with col2:
+            keyword = st.text_input("🔍 景点关键词（可选）", placeholder="故宫、熊猫...")
+        col3, col4 = st.columns(2)
+        with col3:
+            rating_filter = st.selectbox("⭐ 评分筛选", ["不限", "4.5+", "4.0+"])
+        with col4:
+            distance_filter = st.selectbox("📏 距离筛选", ["不限", "≤1km", "≤5km"])
+        if st.button("搜索景点", use_container_width=True):
+            if not city:
+                st.error("请填写城市名称")
+            else:
+                with st.spinner("搜索中..."):
+                    results = search_attractions(city, keyword, rating_filter, distance_filter)
+                    if not results:
+                        st.info("未找到相关景点")
+                    else:
+                        for spot in results:
+                            with st.expander(f"🏯 {spot['name']}  ⭐ {spot['rating']}  |  📍 {spot['distance']}"):
+                                st.markdown(f"**简介**: {spot['intro']}")
+                                st.markdown(f"**开放时间**: {spot['open_time']}  |  **门票**: {spot['ticket']}")
+                                if st.button("➕ 加入行程草稿", key=f"add_{spot['name']}"):
+                                    st.info(f"已将 {spot['name']} 加入待选")
+
+    # 美食推荐
     elif menu == "🍜 美食推荐":
         st.markdown('<div class="sub-header">🍽️ 地道美食（高德实时）</div>', unsafe_allow_html=True)
         city_food = st.text_input("📍 城市/区域", placeholder="北京、成都...")
@@ -376,7 +358,7 @@ elif menu == "🏞️ 景点查询":
                 st.markdown(f"**地址**: {f['address']}  |  **特色**: {f['specialty']}")
                 st.divider()
 
-    # ---------- 天气查询 ----------
+    # 天气查询
     elif menu == "☀️ 天气查询":
         st.markdown('<div class="sub-header">🌤️ 实时天气（高德）</div>', unsafe_allow_html=True)
         city_weather = st.text_input("🌆 城市名称", placeholder="北京")
@@ -387,36 +369,25 @@ elif menu == "🏞️ 景点查询":
                 col1.metric("🌡️ 温度", f"{weather['temp']}°C")
                 col2.metric("💧 湿度", f"{weather['humidity']}%")
                 col3.metric("💨 风力", weather['wind'])
-                st.markdown(f"**天气**: {weather['condition']}")
+                st.markdown(f"**天气状况**: {weather['condition']}")
                 st.info(f"👕 **穿衣建议**: {weather['dress']}")
             else:
                 st.error("未获取到天气")
 
-    # ---------- 预算计算 ----------
+    # 预算计算
     elif menu == "💰 预算计算":
         st.markdown('<div class="sub-header">💰 智能预算估算</div>', unsafe_allow_html=True)
         days = st.number_input("天数", 1, 14, 3)
         persons = st.number_input("人数", 1, 10, 2)
         level = st.selectbox("消费档次", ["经济型", "舒适型", "豪华型"])
         if st.button("开始估算"):
-            level_rates = {"经济型": {"住宿":200, "餐饮":80, "交通":50, "门票":60},
-                           "舒适型": {"住宿":400, "餐饮":150, "交通":100, "门票":100},
-                           "豪华型": {"住宿":900, "餐饮":350, "交通":200, "门票":200}}
-            rates = level_rates[level]
-            rooms = (persons + 1) // 2
-            details = {
-                "住宿": rates["住宿"] * days * rooms,
-                "餐饮": rates["餐饮"] * days * persons,
-                "交通": rates["交通"] * days * persons,
-                "门票": rates["门票"] * days * persons
-            }
+            details = calculate_budget(days, persons, level)
             total = sum(details.values())
-            st.write("费用明细：")
             for k, v in details.items():
                 st.write(f"- {k}: ¥{v:,.0f}")
             st.success(f"总计：¥{total:,.0f}")
 
-    # ---------- 交通路线（实时高德驾车） ----------
+    # 交通路线
     elif menu == "🚗 交通路线":
         st.markdown('<div class="sub-header">🚄 实时驾车路线（高德）</div>', unsafe_allow_html=True)
         trans_type = st.radio("交通类型", ["城际交通", "市内交通"], horizontal=True)
@@ -443,7 +414,7 @@ elif menu == "🏞️ 景点查询":
                 for r in routes:
                     st.markdown(f"**{r['type']}** | 耗时 {r['duration']} | {r['detail']}")
 
-    # ---------- 实时信息 ----------
+    # 实时信息
     elif menu == "📢 实时信息":
         st.markdown('<div class="sub-header">📡 出行实时动态</div>', unsafe_allow_html=True)
         info_city = st.text_input("城市（用于路况）", "成都", key="traffic_city")
