@@ -5,6 +5,8 @@ import os
 from datetime import datetime
 import random
 import time
+import subprocess
+
 
 st.set_page_config(page_title="旅游计划智能体 · PC专业版", page_icon="✈️", layout="wide")
 
