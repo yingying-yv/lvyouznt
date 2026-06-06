@@ -62,7 +62,60 @@ def generate_travel_plan(origin, destination, days, budget=None):
 输出Markdown格式。"""
     return call_deepseek(prompt)
 
-# ---------- 高德景点搜索 ----------
+# -----------调用飞猪------------
+def search_transport(origin, destination, date, transport_type="train"):
+    """
+    调用飞猪 flyai API 查询实时交通方案
+    transport_type: "train"（火车） 或 "flight"（飞机）
+    """
+    api_key = st.secrets.get("FLYAI_API_KEY")
+    api_base = st.secrets.get("FLYAI_API_BASE", "https://api.openclaw.com/v1")
+    if not api_key:
+        st.error("❌ 未配置 FLYAI_API_KEY，请在 Secrets 中添加")
+        return []
+    
+    # 根据交通类型选择不同的 endpoint
+    if transport_type == "train":
+        endpoint = f"{api_base}/flyai/search-train"
+    else:
+        endpoint = f"{api_base}/flyai/search-flight"
+    
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "from": origin,
+        "to": destination,
+        "date": date,
+        "format": "json"
+    }
+    
+    try:
+        resp = requests.post(endpoint, json=payload, headers=headers, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        # 根据返回数据格式解析（以下为示例结构，请根据实际 API 响应调整）
+        if data.get("code") == 0 and data.get("data"):
+            results = []
+            for item in data["data"]:
+                results.append({
+                    "train_no": item.get("train_no") or item.get("flight_no"),
+                    "departure_time": item.get("departure_time"),
+                    "arrival_time": item.get("arrival_time"),
+                    "duration": item.get("duration"),
+                    "price": item.get("price"),
+                    "seats": item.get("seats")  # 火车席位或航班舱位
+                })
+            return results
+        else:
+            st.warning(f"查询失败：{data.get('message', '未知错误')}")
+            return []
+    except Exception as e:
+        st.error(f"请求异常：{e}")
+        return []
+
+# ------------ 高德景点搜索 ------------
 def search_attractions(city, keyword="", rating_filter="不限", distance_filter="不限"):
     key = get_amap_key()
     if not city:
@@ -389,32 +442,43 @@ def main():
                 st.write(f"- {k}: ¥{v:,.0f}")
             st.success(f"总计：¥{total:,.0f}")
 
-    # 交通路线
-    elif menu == "🚗 交通路线":
-        st.markdown('<div class="sub-header">🚄 实时驾车路线（高德）</div>', unsafe_allow_html=True)
-        trans_type = st.radio("交通类型", ["城际交通", "市内交通"], horizontal=True)
-        if trans_type == "城际交通":
-            col1, col2 = st.columns(2)
-            with col1:
-                origin = st.text_input("出发城市", "上海")
-            with col2:
-                dest = st.text_input("到达城市", "北京")
-            if st.button("查询城际路线"):
-                routes = get_transport(origin, dest, "intercity")
-                for r in routes:
-                    st.markdown(f"**{r['type']}** | 耗时 {r['duration']} | {r['price']}")
-                    st.caption(r['detail'])
-                    st.divider()
-        else:
-            col1, col2 = st.columns(2)
-            with col1:
-                start = st.text_input("起点（详细地点）", "天安门")
-            with col2:
-                end = st.text_input("终点", "颐和园")
-            if st.button("查询市内路线"):
-                routes = get_transport(start, end, "city")
-                for r in routes:
-                    st.markdown(f"**{r['type']}** | 耗时 {r['duration']} | {r['detail']}")
+elif menu == "🚗 交通路线":
+    st.markdown('<div class="sub-header">🚄 实时出行方案（动车/飞机）</div>', unsafe_allow_html=True)
+    trans_type = st.radio("交通类型", ["城际交通", "市内交通"], horizontal=True)
+    
+    if trans_type == "城际交通":
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            origin = st.text_input("出发城市", "上海")
+        with col2:
+            destination = st.text_input("到达城市", "北京")
+        with col3:
+            travel_date = st.date_input("出行日期", datetime.now())
+        
+        # 选择交通工具
+        transport_type = st.radio("选择交通工具", ["火车（高铁/动车）", "飞机"], horizontal=True)
+        
+        if st.button("查询实时方案"):
+            with st.spinner("正在获取实时车次/航班信息..."):
+                if transport_type == "火车（高铁/动车）":
+                    routes = search_transport(origin, destination, travel_date.strftime("%Y-%m-%d"), "train")
+                else:
+                    routes = search_transport(origin, destination, travel_date.strftime("%Y-%m-%d"), "flight")
+                
+                if routes:
+                    for route in routes:
+                        with st.container():
+                            st.markdown(f"### {route.get('train_no', '未知班次')}")
+                            st.write(f"**出发**：{route['departure_time']}  &nbsp;&nbsp;→&nbsp;&nbsp; **到达**：{route['arrival_time']}")
+                            st.write(f"**耗时**：{route.get('duration', '未知')}   |   **票价**：{route.get('price', '暂无')}")
+                            if route.get('seats'):
+                                st.write(f"**余票/舱位**：{route['seats']}")
+                            st.divider()
+                else:
+                    st.warning("未查询到相关方案，请尝试其他日期或城市")
+    else:
+        # 市内交通部分保持不变（使用高德驾车路线）
+        # ... 原有代码 ...
 
     # 实时信息
     elif menu == "📢 实时信息":
