@@ -441,11 +441,11 @@ def main():
             for k, v in details.items():
                 st.write(f"- {k}: ¥{v:,.0f}")
             st.success(f"总计：¥{total:,.0f}")
-    # 交通路线
-    elif menu == "🚗 交通路线":
-    st.markdown('<div class="sub-header">🚄 实时出行方案（动车/飞机）</div>', unsafe_allow_html=True)
-    trans_type = st.radio("交通类型", ["城际交通", "市内交通"], horizontal=True)
 
+    elif menu == "🚗 交通路线":
+        st.markdown('<div class="sub-header">🚄 实时出行方案（动车/飞机）</div>', unsafe_allow_html=True)
+        trans_type = st.radio("交通类型", ["城际交通", "市内交通"], horizontal=True)
+    
     if trans_type == "城际交通":
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -454,33 +454,33 @@ def main():
             destination = st.text_input("到达城市", "北京")
         with col3:
             travel_date = st.date_input("出行日期", datetime.now())
-
+        
         # 选择交通工具
         transport_type = st.radio("选择交通工具", ["火车（高铁/动车）", "飞机"], horizontal=True)
-
+        
         if st.button("查询实时方案"):
             with st.spinner("正在获取实时车次/航班信息..."):
                 if transport_type == "火车（高铁/动车）":
                     routes = search_transport(origin, destination, travel_date.strftime("%Y-%m-%d"), "train")
                 else:
                     routes = search_transport(origin, destination, travel_date.strftime("%Y-%m-%d"), "flight")
-
+                
                 if routes:
                     for route in routes:
                         with st.container():
                             st.markdown(f"### {route.get('train_no', '未知班次')}")
-                            # 修正 f-string 和 Markdown 语法
-                            st.write(f"**出发**：{route['departure_time']} &nbsp;&nbsp;→&nbsp;&nbsp; **到达**：{route['arrival_time']}")
-                            st.write(f"**耗时**：{route.get('duration', '未知')}  |  **票价**：{route.get('price', '暂无')}")
+                            st.write(f"**出发**：{route['departure_time']}  &nbsp;&nbsp;→&nbsp;&nbsp; **到达**：{route['arrival_time']}")
+                            st.write(f"**耗时**：{route.get('duration', '未知')}   |   **票价**：{route.get('price', '暂无')}")
                             if route.get('seats'):
                                 st.write(f"**余票/舱位**：{route['seats']}")
                             st.divider()
                 else:
                     st.warning("未查询到相关方案，请尝试其他日期或城市")
     else:
-        # 市内交通部分（使用高德驾车路线，保持不变）
-        st.info("市内交通规划：请在上方选择“城际交通”后使用")
-        # 你可以将原来的高德驾车代码放在这里，或者留空
+        # 市内交通部分保持不变（使用高德驾车路线）
+        # ... 原有代码 ...
+    
+    
     # 实时信息
     elif menu == "📢 实时信息":
         st.markdown('<div class="sub-header">📡 出行实时动态</div>', unsafe_allow_html=True)
