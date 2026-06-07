@@ -19,7 +19,7 @@ def get_flyai_command():
     except:
         pass
 
-    # 安装 @fly-ai/cli
+    # 正确安装 @fly-ai/cli（注意 @ 符号）
     try:
         subprocess.run(["npm", "install", "-g", "@fly-ai/cli"], check=True, timeout=120)
     except subprocess.CalledProcessError as e:
@@ -43,7 +43,6 @@ def get_flyai_command():
             return p
 
     raise FileNotFoundError("无法找到 flyai 命令，请检查安装过程")
-    
 # -------------------- 页面配置 --------------------
 st.set_page_config(page_title="旅游计划智能体 · 专业版", page_icon="✈️", layout="wide")
 
@@ -273,8 +272,15 @@ def get_driving_route(origin, destination):
 
 # -------------------- 飞猪实时交通查询（火车/飞机） --------------------
 def search_transport(origin, destination, date, transport_type="train"):
-    flyai_cmd = get_flyai_command()
-    # 注意命令是 'search-train'（根据飞猪文档）
+    """
+    调用 flyai 查询火车票（目前支持火车，飞机类似）
+    """
+    try:
+        flyai_cmd = get_flyai_command()
+    except Exception as e:
+        st.error(f"初始化 flyai 失败: {e}")
+        return []
+
     cmd = [flyai_cmd, "search-train", "--from", origin, "--to", destination, "--date", date]
 
     try:
@@ -282,7 +288,7 @@ def search_transport(origin, destination, date, transport_type="train"):
         if result.returncode != 0:
             st.error(f"查询失败: {result.stderr}")
             return []
-        # 尝试解析 JSON 输出
+        # 解析 JSON 输出（假设是标准 JSON）
         import json
         data = json.loads(result.stdout)
         routes = []
@@ -299,13 +305,13 @@ def search_transport(origin, destination, date, transport_type="train"):
     except subprocess.TimeoutExpired:
         st.error("查询超时，请稍后重试")
         return []
-    except json.JSONDecodeError as e:
-        st.error(f"解析数据失败: {e}\n原始输出: {result.stdout}")
+    except json.JSONDecodeError:
+        # 如果输出不是 JSON，返回友好提示
+        st.warning("返回数据格式异常，请稍后重试")
         return []
     except Exception as e:
         st.error(f"查询出错: {e}")
         return []
-        
 # -------------------- PC端主界面 --------------------
 def main():
     st.markdown('<div class="main-header">✈️ 旅游计划智能体 · 专业版</div>', unsafe_allow_html=True)
