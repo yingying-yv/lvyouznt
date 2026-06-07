@@ -237,40 +237,46 @@ def get_driving_route(origin, destination):
 # -------------------- 飞猪实时交通查询（火车/飞机） --------------------
 def search_transport(origin, destination, date, transport_type="train"):
     """
-    调用飞猪 flyai API 查询实时交通方案
-    transport_type: "train" 或 "flight"
+    调用 flyai-cli 查询火车票 (无需 API Key)
     """
-    api_key = get_flyai_key()
-    if not api_key:
-        # 演示模式返回模拟数据
-        return [
-            {"train_no": "G1234", "departure_time": "08:00", "arrival_time": "12:30",
-             "duration": "4.5小时", "price": "553元", "seats": "二等座充足"},
-            {"train_no": "D456", "departure_time": "14:20", "arrival_time": "18:50",
-             "duration": "4.5小时", "price": "328元", "seats": "一等座少量"}
-        ] if transport_type == "train" else [
-            {"train_no": "MU1234", "departure_time": "10:30", "arrival_time": "12:45",
-             "duration": "2小时15分", "price": "680元", "seats": "经济舱有票"}
-        ]
-    # 真实 API 地址请替换为飞猪官方 endpoint
-    api_base = "https://api.openclaw.com/v1"  # 示例地址，请替换为真实地址
-    endpoint = f"{api_base}/flyai/search-train" if transport_type == "train" else f"{api_base}/flyai/search-flight"
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    payload = {"from": origin, "to": destination, "date": date, "format": "json"}
+    # 1. 构造命令行参数
+    # 注意：必须用完整路径
+    flyai_path = "/usr/local/bin/flyai"
+    cmd = [flyai_path, "search-train", "--from", origin, "--to", destination, "--date", date]
+    
     try:
-        resp = requests.post(endpoint, json=payload, headers=headers, timeout=15)
-        resp.raise_for_status()
-        data = resp.json()
-        # 根据实际返回结构调整解析逻辑
-        if data.get("code") == 0 and data.get("data"):
-            return data["data"]
-        else:
-            st.warning(f"查询失败：{data.get('message', '未知错误')}")
+        # 2. 执行命令，捕获输出
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        
+        # 3. 检查执行状态
+        if result.returncode != 0:
+            st.error(f"flyai 执行失败: {result.stderr}")
             return []
-    except Exception as e:
-        st.error(f"请求异常：{e}")
+        
+        # 4. 解析返回的 JSON（所有命令输出为单行 JSON，错误在 stderr）
+        data = json.loads(result.stdout)
+        # 根据飞猪实际返回的 JSON 结构调整解析逻辑
+        # 以下是一个参考示例，实际字段名请根据打印出的 data 结构来写
+        routes = []
+        for item in data.get("data", []):
+            routes.append({
+                "train_no": item.get("trainNumber", item.get("trainNo")),
+                "departure_time": item.get("departureTime"),
+                "arrival_time": item.get("arrivalTime"),
+                "duration": item.get("duration"),
+                "price": item.get("price"),
+                "seats": item.get("remainingSeats", "未知")
+            })
+        return routes
+    except subprocess.TimeoutExpired:
+        st.error("查询超时，请稍后重试")
         return []
-
+    except json.JSONDecodeError as e:
+        st.error(f"解析返回数据失败: {e}")
+        return []
+    except Exception as e:
+        st.error(f"查询出错: {e}")
+        return []
 # -------------------- PC端主界面 --------------------
 def main():
     st.markdown('<div class="main-header">✈️ 旅游计划智能体 · 专业版</div>', unsafe_allow_html=True)
