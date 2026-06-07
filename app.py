@@ -7,6 +7,43 @@ import random
 import time
 import subprocess
 
+@st.cache_resource
+def get_flyai_command():
+    """
+    安装 @fly-ai/cli 并返回 flyai 命令的完整路径
+    """
+    # 先尝试直接使用 'flyai' 命令
+    try:
+        subprocess.run(["flyai", "--version"], capture_output=True, check=True)
+        return "flyai"
+    except:
+        pass
+
+    # 未安装，执行全局安装
+    try:
+        subprocess.run(["npm", "install", "-g", "@fly-ai/cli"], check=True, timeout=120)
+    except subprocess.CalledProcessError as e:
+        st.error(f"安装 flyai 失败: {e}")
+        raise
+
+    # 获取 npm 全局 bin 目录
+    result = subprocess.run(["npm", "bin", "-g"], capture_output=True, text=True, check=True)
+    global_bin = result.stdout.strip()
+    flyai_path = os.path.join(global_bin, "flyai")
+    if os.path.exists(flyai_path):
+        return flyai_path
+
+    # 常见备选路径
+    candidates = [
+        "/usr/local/bin/flyai",
+        "/home/adminuser/.npm-global/bin/flyai"
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            return p
+
+    raise FileNotFoundError("无法找到 flyai 命令，请检查安装过程")
+    
 # -------------------- 页面配置 --------------------
 st.set_page_config(page_title="旅游计划智能体 · 专业版", page_icon="✈️", layout="wide")
 
@@ -236,33 +273,19 @@ def get_driving_route(origin, destination):
 
 # -------------------- 飞猪实时交通查询（火车/飞机） --------------------
 def search_transport(origin, destination, date, transport_type="train"):
-    """
-    使用 npx 调用 @fly-ai/cli 查询火车票
-    """
-    # 构建 npx 命令
-    # 注意：命令名称是 'search-train'，根据文档确认
-    cmd = [
-        "npx", "@fly-ai/cli", "search-train",
-        "--from", origin,
-        "--to", destination,
-        "--date", date,
-        "--format", "json"   # 添加输出格式为 JSON（如果支持）
-    ]
-    
+    flyai_cmd = get_flyai_command()
+    # 注意命令是 'search-train'（根据飞猪文档）
+    cmd = [flyai_cmd, "search-train", "--from", origin, "--to", destination, "--date", date]
+
     try:
-        # 执行命令，捕获输出
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        
         if result.returncode != 0:
-            # 错误信息在 stderr
             st.error(f"查询失败: {result.stderr}")
             return []
-        
-        # 解析 JSON 输出
+        # 尝试解析 JSON 输出
+        import json
         data = json.loads(result.stdout)
-        # 根据实际返回的数据结构调整字段映射（以下是示例）
         routes = []
-        # 假设返回格式为 { "data": [ { "trainNumber": "...", ... } ] }
         for item in data.get("data", []):
             routes.append({
                 "train_no": item.get("trainNumber") or item.get("trainNo") or "未知",
@@ -277,7 +300,7 @@ def search_transport(origin, destination, date, transport_type="train"):
         st.error("查询超时，请稍后重试")
         return []
     except json.JSONDecodeError as e:
-        st.error(f"解析返回数据失败: {e}\n原始输出: {result.stdout}")
+        st.error(f"解析数据失败: {e}\n原始输出: {result.stdout}")
         return []
     except Exception as e:
         st.error(f"查询出错: {e}")
