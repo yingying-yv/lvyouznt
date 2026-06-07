@@ -237,34 +237,39 @@ def get_driving_route(origin, destination):
 # -------------------- 飞猪实时交通查询（火车/飞机） --------------------
 def search_transport(origin, destination, date, transport_type="train"):
     """
-    调用 flyai-cli 查询火车票 (无需 API Key)
+    使用 npx 调用 @fly-ai/cli 查询火车票
     """
-    # 1. 构造命令行参数
-    # 注意：必须用完整路径
-    flyai_path = "/usr/local/bin/flyai"
-    cmd = [flyai_path, "search-train", "--from", origin, "--to", destination, "--date", date]
+    # 构建 npx 命令
+    # 注意：命令名称是 'search-train'，根据文档确认
+    cmd = [
+        "npx", "@fly-ai/cli", "search-train",
+        "--from", origin,
+        "--to", destination,
+        "--date", date,
+        "--format", "json"   # 添加输出格式为 JSON（如果支持）
+    ]
     
     try:
-        # 2. 执行命令，捕获输出
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        # 执行命令，捕获输出
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         
-        # 3. 检查执行状态
         if result.returncode != 0:
-            st.error(f"flyai 执行失败: {result.stderr}")
+            # 错误信息在 stderr
+            st.error(f"查询失败: {result.stderr}")
             return []
         
-        # 4. 解析返回的 JSON（所有命令输出为单行 JSON，错误在 stderr）
+        # 解析 JSON 输出
         data = json.loads(result.stdout)
-        # 根据飞猪实际返回的 JSON 结构调整解析逻辑
-        # 以下是一个参考示例，实际字段名请根据打印出的 data 结构来写
+        # 根据实际返回的数据结构调整字段映射（以下是示例）
         routes = []
+        # 假设返回格式为 { "data": [ { "trainNumber": "...", ... } ] }
         for item in data.get("data", []):
             routes.append({
-                "train_no": item.get("trainNumber", item.get("trainNo")),
-                "departure_time": item.get("departureTime"),
-                "arrival_time": item.get("arrivalTime"),
-                "duration": item.get("duration"),
-                "price": item.get("price"),
+                "train_no": item.get("trainNumber") or item.get("trainNo") or "未知",
+                "departure_time": item.get("departureTime", "未知"),
+                "arrival_time": item.get("arrivalTime", "未知"),
+                "duration": item.get("duration", "未知"),
+                "price": item.get("price", "暂无"),
                 "seats": item.get("remainingSeats", "未知")
             })
         return routes
@@ -272,11 +277,12 @@ def search_transport(origin, destination, date, transport_type="train"):
         st.error("查询超时，请稍后重试")
         return []
     except json.JSONDecodeError as e:
-        st.error(f"解析返回数据失败: {e}")
+        st.error(f"解析返回数据失败: {e}\n原始输出: {result.stdout}")
         return []
     except Exception as e:
         st.error(f"查询出错: {e}")
         return []
+        
 # -------------------- PC端主界面 --------------------
 def main():
     st.markdown('<div class="main-header">✈️ 旅游计划智能体 · 专业版</div>', unsafe_allow_html=True)
