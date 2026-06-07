@@ -10,20 +10,20 @@ import subprocess
 @st.cache_resource
 def get_flyai_command():
     """
-    安装 @fly-ai/cli 并返回 flyai 命令的完整路径
+    确保 @fly-ai/cli 已全局安装，并返回 flyai 命令路径
     """
-    # 先尝试直接使用 'flyai' 命令
+    # 尝试直接使用 'flyai' 命令
     try:
         subprocess.run(["flyai", "--version"], capture_output=True, check=True)
         return "flyai"
     except:
         pass
 
-    # 未安装，执行全局安装
+    # 安装 @fly-ai/cli
     try:
         subprocess.run(["npm", "install", "-g", "@fly-ai/cli"], check=True, timeout=120)
     except subprocess.CalledProcessError as e:
-        st.error(f"安装 flyai 失败: {e}")
+        st.error(f"安装 @fly-ai/cli 失败: {e}")
         raise
 
     # 获取 npm 全局 bin 目录
